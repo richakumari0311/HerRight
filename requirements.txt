@@ -1,0 +1,10 @@
+langchain
+langchain-community
+langchain-google-genai
+faiss-cpu
+pymupdf
+sentence-transformers
+langchain-huggingface
+streamlit
+python-dotenv
+sarvamai

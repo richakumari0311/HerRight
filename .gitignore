@@ -1,0 +1,21 @@
+# environment
+.env
+
+# vector store (auto-generated, no need to commit)
+data/vectorstore/
+
+# python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.egg-info/
+dist/
+build/
+
+# streamlit
+.streamlit/
+
+# os
+.DS_Store
+Thumbs.db
