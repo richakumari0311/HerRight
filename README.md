@@ -1,7 +1,7 @@
 # HerRight
 
 A multilingual AI assistant that helps women in India understand their legal rights,
-safety options, and available support services — in their own language, including voice.
+safety options, and available support services, in their own language, including voice.
 
 ---
 
@@ -9,8 +9,7 @@ safety options, and available support services — in their own language, includ
 
 Millions of women in India, especially in tier 2 and tier 3 cities, face domestic
 violence, workplace harassment, cyber crime, and other rights violations every day.
-The information they need exists — in government acts, NCW guidelines, scheme documents
-— but it is written in legal language, available only in English, and impossible to
+The information they need exists, in government acts, NCW guidelines, scheme documents, but it is written in legal language, available only in English, and impossible to
 navigate without a lawyer.
 
 HerRight bridges that gap.
