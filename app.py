@@ -7,6 +7,7 @@ import streamlit as st
 import sys
 sys.path.append(".")
 
+from langchain_core.messages import HumanMessage, AIMessage
 from src.rag_pipeline import get_rag_chain
 from src.voice_agent import speech_to_text, text_to_speech
 
@@ -15,6 +16,29 @@ st.set_page_config(
     page_icon="⚖",
     layout="centered"
 )
+
+# Clean minimal styling
+st.markdown("""
+<style>
+    .emergency-banner {
+        background-color: #c0392b;
+        padding: 12px 16px;
+        border-radius: 8px;
+        color: white;
+        font-weight: 600;
+        font-size: 14px;
+        margin-bottom: 8px;
+    }
+    .source-line {
+        font-size: 12px;
+        color: #888;
+        margin-top: 4px;
+    }
+    div[data-testid="stChatMessage"] {
+        padding: 8px 0;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 LANGUAGE_OPTIONS = {
     "English": "en-IN",
@@ -28,7 +52,7 @@ LANGUAGE_OPTIONS = {
 
 SOURCE_LINKS = {
     "domestic_violence_act.pdf": (
-        "Protection of Women from Domestic Violence Act",
+        "Domestic Violence Act",
         "https://cdn.ncw.gov.in/wp-content/uploads/2023/06/TheProtectionofWomenfromDomesticViolenceAct2005_0.pdf"
     ),
     "pocso_act.pdf": (
@@ -44,7 +68,7 @@ SOURCE_LINKS = {
         "https://cdn.ncw.gov.in/wp-content/uploads/2023/06/THEDOWRYPROHIBITIONACT1961_0.pdf"
     ),
     "sexual_harassment_workplace_act.pdf": (
-        "Sexual Harassment of Women at Workplace Act",
+        "Sexual Harassment at Workplace Act",
         "https://cdn.ncw.gov.in/wp-content/uploads/2023/06/SexualHarassmentofWomenatWorkPlaceAct2013_0.pdf"
     ),
     "criminal_law_amendment_act.pdf": (
@@ -68,7 +92,7 @@ SOURCE_LINKS = {
         "https://wcd.gov.in/"
     ),
     "cybercrime_reporting_steps.txt": (
-        "Cyber Crime Reporting Portal",
+        "Cyber Crime Portal",
         "https://cybercrime.gov.in/"
     ),
 }
@@ -87,9 +111,20 @@ def load_chain():
     return get_rag_chain()
 
 
+def build_chat_history() -> list:
+    """Convert session messages to LangChain message objects for memory."""
+    history = []
+    for msg in st.session_state.get("messages", []):
+        if msg["role"] == "user":
+            history.append(HumanMessage(content=msg["content"]))
+        elif msg["role"] == "assistant":
+            history.append(AIMessage(content=msg["content"]))
+    return history
+
+
 def handle_query(chain, user_input: str) -> tuple[str, list]:
     """
-    Run the RAG chain and return answer with source filenames.
+    Run the history-aware RAG chain and return answer with source filenames.
 
     Returns:
         Tuple of (answer string, list of source filenames)
@@ -97,10 +132,15 @@ def handle_query(chain, user_input: str) -> tuple[str, list]:
     if not user_input or not user_input.strip():
         return "I did not receive a question. Please try again.", []
 
-    response = chain.invoke({"input": user_input})
+    # Pass full chat history except the current message (not yet appended)
+    chat_history = build_chat_history()
+
+    response = chain.invoke({
+        "input": user_input,
+        "chat_history": chat_history
+    })
     answer = response["answer"]
 
-    # create_retrieval_chain returns context, not source_documents
     context_docs = response.get("context", [])
     seen = set()
     sources = []
@@ -127,15 +167,33 @@ def render_sources(sources: list):
 
 
 def render_answer(answer: str, sources: list, language_code: str):
-    """Render answer text, audio, and sources."""
+    """Render answer text, audio output, and sources."""
     st.markdown(answer)
-    with st.spinner("Generating audio response..."):
+    with st.spinner("Generating audio..."):
         try:
             audio_response = text_to_speech(answer, language_code)
             st.audio(audio_response, format="audio/wav")
         except Exception:
             pass
     render_sources(sources)
+
+
+def process_input(chain, user_input: str, language_code: str):
+    """Shared handler for both text and voice input."""
+    st.session_state.messages.append({"role": "user", "content": user_input})
+
+    with st.chat_message("user"):
+        st.markdown(user_input)
+
+    with st.chat_message("assistant"):
+        answer, sources = handle_query(chain, user_input)
+        render_answer(answer, sources, language_code)
+
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": answer,
+        "sources": sources
+    })
 
 
 chain = load_chain()
@@ -155,17 +213,17 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("**Emergency Helplines**")
     st.markdown("""
-- **181** - Women Helpline
-- **112** - National Emergency
-- **1091** - Women Police Helpline
-- **1098** - Child Helpline
-- **cybercrime.gov.in** - Cyber Crime
-- **ncwapps.nic.in** - NCW Complaint
+- **181** — Women Helpline
+- **112** — National Emergency
+- **1091** — Women Police Helpline
+- **1098** — Child Helpline
+- **[cybercrime.gov.in](https://cybercrime.gov.in)** — Cyber Crime
+- **[ncwapps.nic.in](https://ncwapps.nic.in)** — NCW Complaint
     """)
 
     st.markdown("---")
     st.markdown("**About HerRight**")
-    st.markdown(
+    st.caption(
         "HerRight is a free AI assistant that helps women in India "
         "understand their legal rights and safety options in their own language."
     )
@@ -178,45 +236,39 @@ with st.sidebar:
 
 # --- Main Area ---
 st.markdown("""
-<div style='background-color:#c0392b;padding:12px;border-radius:8px;color:white;font-weight:bold;'>
+<div class='emergency-banner'>
 Emergency? Call 181 (Women Helpline) or 112 (National Emergency) right now.
 </div>
 """, unsafe_allow_html=True)
 
 st.markdown("---")
 
-# Starter questions shown only when chat is empty
-if not st.session_state.get("messages"):
+# Initialize messages
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# Starter questions shown only on empty chat
+if not st.session_state.messages:
     st.markdown("**Not sure where to start? Try asking:**")
     cols = st.columns(2)
     for i, question in enumerate(STARTER_QUESTIONS):
         if cols[i % 2].button(question, use_container_width=True):
-            st.session_state.messages = []
             st.session_state["starter_input"] = question
             st.rerun()
     st.markdown("---")
 
 # Chat history
-for message in st.session_state.get("messages", []):
+for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
         if message["role"] == "assistant" and message.get("sources"):
             render_sources(message["sources"])
 
-# Handle starter question click
+# Handle starter question
 if "starter_input" in st.session_state:
-    user_input = st.session_state.pop("starter_input")
-    st.session_state.messages.append({"role": "user", "content": user_input})
-    with st.chat_message("user"):
-        st.markdown(user_input)
-    with st.chat_message("assistant"):
-        answer, sources = handle_query(chain, user_input)
-        render_answer(answer, sources, language_code)
-    st.session_state.messages.append({
-        "role": "assistant",
-        "content": answer,
-        "sources": sources
-    })
+    question = st.session_state.pop("starter_input")
+    process_input(chain, question, language_code)
+    st.rerun()
 
 # --- Input tabs ---
 st.markdown("---")
@@ -230,46 +282,28 @@ with tab_text:
         label_visibility="collapsed"
     )
     if st.button("Send", use_container_width=True) and user_input.strip():
-        st.session_state.messages.append({"role": "user", "content": user_input})
-        with st.chat_message("user"):
-            st.markdown(user_input)
-        with st.chat_message("assistant"):
-            answer, sources = handle_query(chain, user_input)
-            render_answer(answer, sources, language_code)
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": answer,
-            "sources": sources
-        })
+        process_input(chain, user_input, language_code)
         st.rerun()
 
 with tab_voice:
-    audio_input = st.audio_input("Record your questio", label_visibility="collapsed")
-
+    audio_input = st.audio_input(
+        "Record your question",
+        label_visibility="collapsed"
+    )
     if audio_input is not None and (
         st.session_state.get("last_audio") != audio_input.getvalue()
     ):
         st.session_state["last_audio"] = audio_input.getvalue()
-        audio_bytes = audio_input.getvalue()
 
         with st.spinner("Transcribing..."):
-            transcribed = speech_to_text(audio_bytes, language_code)
+            transcribed = speech_to_text(audio_input.getvalue(), language_code)
 
         if not transcribed or not transcribed.strip():
-            st.warning("Could not transcribe audio. Please try speaking again.")
+            st.warning("Could not transcribe. Please try speaking again.")
         else:
             st.success(f"You said: {transcribed}")
-            st.session_state.messages.append({"role": "user", "content": transcribed})
-
-            with st.chat_message("assistant"):
-                answer, sources = handle_query(chain, transcribed)
-                render_answer(answer, sources, language_code)
-
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": answer,
-                "sources": sources
-            })
+            process_input(chain, transcribed, language_code)
+            st.rerun()
 
 # --- Disclaimer ---
 st.markdown("---")
