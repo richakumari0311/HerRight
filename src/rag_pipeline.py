@@ -22,6 +22,25 @@ DOCS_PATH = "data/docs"
 VECTOR_STORE_PATH = "data/vectorstore"
 EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
+FALLBACK_MODELS = [
+    "gemini-2.0-flash",
+    "gemini-2.5-flash-lite-preview-06-17",
+    "gemini-3.1-flash-lite",
+]
+
+
+def get_llm() -> ChatGoogleGenerativeAI:
+    """Return LLM using first available model from fallback list."""
+    for model in FALLBACK_MODELS:
+        try:
+            return ChatGoogleGenerativeAI(
+                model=model,
+                google_api_key=os.getenv("GOOGLE_API_KEY"),
+                temperature=0.2
+            )
+        except Exception:
+            continue
+    raise RuntimeError("All models exhausted. Please try again later.")
 
 def load_documents(docs_path: str) -> list:
     """Load all PDFs and text files from the docs directory."""
@@ -86,11 +105,7 @@ def build_rag_chain(vector_store: FAISS):
     Build a history-aware RAG chain using pure LCEL.
     Returns a callable that accepts {input, chat_history} and returns {answer, context}.
     """
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
-        google_api_key=os.getenv("GOOGLE_API_KEY"),
-        temperature=0.2
-    )
+    llm = get_llm()
 
     retriever = vector_store.as_retriever(search_kwargs={"k": 4})
 

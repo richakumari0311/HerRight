@@ -132,10 +132,19 @@ def process_input(chain, user_input: str, language_code: str):
         elif msg["role"] == "assistant":
             chat_history.append(AIMessage(content=msg["content"]))
 
-    response = chain.invoke({
-        "input": user_input,
-        "chat_history": chat_history
-    })
+    try:
+        response = chain.invoke({
+            "input": user_input,
+            "chat_history": chat_history
+        })
+    except Exception:
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": "I am experiencing high demand right now. Please try again in a minute, or call 181 for immediate support.",
+            "sources": []
+        })
+        return
+
     answer = response["answer"]
 
     context_docs = response.get("context", [])
@@ -153,7 +162,6 @@ def process_input(chain, user_input: str, language_code: str):
         "sources": sources
     })
     st.session_state["pending_audio"] = (answer, language_code)
-
 
 chain = load_chain()
 
