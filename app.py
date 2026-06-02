@@ -214,7 +214,6 @@ if not st.session_state.messages:
         if cols[i % 2].button(question, use_container_width=True):
             st.session_state["starter_input"] = question
             st.rerun()
-    st.markdown("---")
 
 # Handle starter question before rendering history
 if "starter_input" in st.session_state:
@@ -239,7 +238,6 @@ for i, message in enumerate(st.session_state.messages):
                 render_sources(message["sources"])
 
 # --- Input tabs ---
-st.markdown("---")
 tab_text, tab_voice = st.tabs(["Type your question", "Speak your question"])
 
 with tab_text:

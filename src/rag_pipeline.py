@@ -87,7 +87,7 @@ def build_rag_chain(vector_store: FAISS):
     Returns a callable that accepts {input, chat_history} and returns {answer, context}.
     """
     llm = ChatGoogleGenerativeAI(
-        model="gemini-3.5-flash",
+        model="gemini-2.5-flash",
         google_api_key=os.getenv("GOOGLE_API_KEY"),
         temperature=0.2
     )
