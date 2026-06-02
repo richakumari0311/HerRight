@@ -23,9 +23,10 @@ VECTOR_STORE_PATH = "data/vectorstore"
 EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
 FALLBACK_MODELS = [
-    "gemini-2.0-flash",
-    "gemini-2.5-flash-lite-preview-06-17",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
     "gemini-3.1-flash-lite",
+    "gemini-3.5-flash"
 ]
 
 
