@@ -17,7 +17,6 @@ st.set_page_config(
     layout="centered"
 )
 
-# Clean minimal styling
 st.markdown("""
 <style>
     .emergency-banner {
@@ -28,11 +27,6 @@ st.markdown("""
         font-weight: 600;
         font-size: 14px;
         margin-bottom: 8px;
-    }
-    .source-line {
-        font-size: 12px;
-        color: #888;
-        margin-top: 4px;
     }
     div[data-testid="stChatMessage"] {
         padding: 8px 0;
@@ -111,29 +105,32 @@ def load_chain():
     return get_rag_chain()
 
 
-def build_chat_history() -> list:
-    """Convert session messages to LangChain message objects for memory."""
-    history = []
-    for msg in st.session_state.get("messages", []):
+def render_sources(sources: list):
+    """Render clickable source links below an answer."""
+    if not sources:
+        return
+    links = []
+    for filename in sources:
+        if filename in SOURCE_LINKS:
+            display_name, url = SOURCE_LINKS[filename]
+            links.append(f"[{display_name}]({url})")
+    if links:
+        st.caption("Sources: " + " | ".join(links))
+
+
+def process_input(chain, user_input: str, language_code: str):
+    """
+    Handle user input: build history, invoke chain, store result.
+    Audio is rendered in the chat history loop via pending_audio.
+    """
+    st.session_state.messages.append({"role": "user", "content": user_input})
+
+    chat_history = []
+    for msg in st.session_state.messages[:-1]:
         if msg["role"] == "user":
-            history.append(HumanMessage(content=msg["content"]))
+            chat_history.append(HumanMessage(content=msg["content"]))
         elif msg["role"] == "assistant":
-            history.append(AIMessage(content=msg["content"]))
-    return history
-
-
-def handle_query(chain, user_input: str) -> tuple[str, list]:
-    """
-    Run the history-aware RAG chain and return answer with source filenames.
-
-    Returns:
-        Tuple of (answer string, list of source filenames)
-    """
-    if not user_input or not user_input.strip():
-        return "I did not receive a question. Please try again.", []
-
-    # Pass full chat history except the current message (not yet appended)
-    chat_history = build_chat_history()
+            chat_history.append(AIMessage(content=msg["content"]))
 
     response = chain.invoke({
         "input": user_input,
@@ -150,50 +147,12 @@ def handle_query(chain, user_input: str) -> tuple[str, list]:
             seen.add(filename)
             sources.append(filename)
 
-    return answer, sources
-
-
-def render_sources(sources: list):
-    """Render source links below an answer."""
-    if not sources:
-        return
-    links = []
-    for filename in sources:
-        if filename in SOURCE_LINKS:
-            display_name, url = SOURCE_LINKS[filename]
-            links.append(f"[{display_name}]({url})")
-    if links:
-        st.caption("Sources: " + " | ".join(links))
-
-
-def render_answer(answer: str, sources: list, language_code: str):
-    """Render answer text, audio output, and sources."""
-    st.markdown(answer)
-    with st.spinner("Generating audio..."):
-        try:
-            audio_response = text_to_speech(answer, language_code)
-            st.audio(audio_response, format="audio/wav")
-        except Exception:
-            pass
-    render_sources(sources)
-
-
-def process_input(chain, user_input: str, language_code: str):
-    """Shared handler for both text and voice input."""
-    st.session_state.messages.append({"role": "user", "content": user_input})
-
-    with st.chat_message("user"):
-        st.markdown(user_input)
-
-    with st.chat_message("assistant"):
-        answer, sources = handle_query(chain, user_input)
-        render_answer(answer, sources, language_code)
-
     st.session_state.messages.append({
         "role": "assistant",
         "content": answer,
         "sources": sources
     })
+    st.session_state["pending_audio"] = (answer, language_code)
 
 
 chain = load_chain()
@@ -232,6 +191,7 @@ with st.sidebar:
     if st.button("Clear Chat", use_container_width=True):
         st.session_state.messages = []
         st.session_state.pop("last_audio", None)
+        st.session_state.pop("pending_audio", None)
         st.rerun()
 
 # --- Main Area ---
@@ -243,11 +203,10 @@ Emergency? Call 181 (Women Helpline) or 112 (National Emergency) right now.
 
 st.markdown("---")
 
-# Initialize messages
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Starter questions shown only on empty chat
+# Starter questions — only on empty chat
 if not st.session_state.messages:
     st.markdown("**Not sure where to start? Try asking:**")
     cols = st.columns(2)
@@ -257,18 +216,27 @@ if not st.session_state.messages:
             st.rerun()
     st.markdown("---")
 
-# Chat history
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-        if message["role"] == "assistant" and message.get("sources"):
-            render_sources(message["sources"])
-
-# Handle starter question
+# Handle starter question before rendering history
 if "starter_input" in st.session_state:
     question = st.session_state.pop("starter_input")
     process_input(chain, question, language_code)
     st.rerun()
+
+# --- Chat history ---
+for i, message in enumerate(st.session_state.messages):
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+        if message["role"] == "assistant":
+            if i == len(st.session_state.messages) - 1 and "pending_audio" in st.session_state:
+                answer_text, lang_code = st.session_state.pop("pending_audio")
+                with st.spinner("Generating audio..."):
+                    try:
+                        audio_bytes = text_to_speech(answer_text, lang_code)
+                        st.audio(audio_bytes, format="audio/wav")
+                    except Exception:
+                        st.caption("Audio unavailable for this response.")
+            if message.get("sources"):
+                render_sources(message["sources"])
 
 # --- Input tabs ---
 st.markdown("---")
@@ -294,10 +262,8 @@ with tab_voice:
         st.session_state.get("last_audio") != audio_input.getvalue()
     ):
         st.session_state["last_audio"] = audio_input.getvalue()
-
         with st.spinner("Transcribing..."):
             transcribed = speech_to_text(audio_input.getvalue(), language_code)
-
         if not transcribed or not transcribed.strip():
             st.warning("Could not transcribe. Please try speaking again.")
         else:

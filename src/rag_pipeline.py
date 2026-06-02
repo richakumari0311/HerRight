@@ -1,6 +1,7 @@
 """
 RAG pipeline for HerRight.
 Loads documents, builds FAISS vector store, and returns a history-aware retrieval chain.
+Built with LCEL - no deprecated langchain.chains imports.
 """
 
 import os
@@ -8,12 +9,12 @@ from dotenv import load_dotenv
 from langchain_community.document_loaders import PyMuPDFLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain.chains import create_retrieval_chain
-from langchain_core.retrievers import create_history_aware_retriever
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough, RunnableLambda
+from langchain_core.messages import BaseMessage
 
 load_dotenv()
 
@@ -64,48 +65,93 @@ def load_vector_store() -> FAISS:
     )
 
 
+def format_docs(docs: list) -> str:
+    """Format retrieved documents into a single context string."""
+    return "\n\n".join(doc.page_content for doc in docs)
+
+
+def format_chat_history(messages: list[BaseMessage]) -> str:
+    """Format chat history into a readable string for the prompt."""
+    if not messages:
+        return ""
+    formatted = []
+    for msg in messages:
+        role = "User" if msg.type == "human" else "Assistant"
+        formatted.append(f"{role}: {msg.content}")
+    return "\n".join(formatted)
+
+
 def build_rag_chain(vector_store: FAISS):
-    """Build and return a history-aware retrieval chain using Gemini."""
+    """
+    Build a history-aware RAG chain using pure LCEL.
+    Returns a callable that accepts {input, chat_history} and returns {answer, context}.
+    """
     llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
+        model="gemini-3.5-flash",
         google_api_key=os.getenv("GOOGLE_API_KEY"),
         temperature=0.2
     )
 
-    # Reformulates the user question considering chat history
-    contextualize_prompt = ChatPromptTemplate.from_messages([
+    retriever = vector_store.as_retriever(search_kwargs={"k": 4})
+
+    # Step 1 — rephrase user question considering chat history
+    rephrase_prompt = ChatPromptTemplate.from_messages([
         ("system",
-         "Given the chat history and the latest user question, "
+         "Given the conversation history and the latest user question, "
          "reformulate the question to be standalone and self-contained. "
-         "Do not answer it. Just reformulate if needed, otherwise return as is."
+         "Do not answer it. Just reformulate if needed, otherwise return as is. "
+         "Chat history:\n{chat_history}"
         ),
-        MessagesPlaceholder("chat_history"),
         ("human", "{input}")
     ])
 
-    history_aware_retriever = create_history_aware_retriever(
-        llm,
-        vector_store.as_retriever(search_kwargs={"k": 4}),
-        contextualize_prompt
-    )
+    rephrase_chain = rephrase_prompt | llm | StrOutputParser()
 
-    # Main QA prompt
+    # Step 2 — answer using retrieved context
     qa_prompt = ChatPromptTemplate.from_messages([
         ("system",
-         "You are HerRight, a compassionate assistant helping women in India "
-         "understand their legal rights, safety options, and support services. "
-         "Use only the context below to answer. "
-         "If the answer is not in the context, say: I don't have specific information "
-         "on this, but you can call the Women Helpline at 181 for immediate support. "
-         "Always respond in the same language the user writes in. "
-         "Keep answers clear, simple, and actionable.\n\nContext:\n{context}"
+        "You are HerRight, a compassionate assistant helping women in India "
+        "understand their legal rights, safety options, and support services. "
+        "Use only the context below to answer. "
+        "If the answer is not in the context, say: I don't have specific information "
+        "on this, but you can call the Women Helpline at 181 for immediate support. "
+        "Always respond in the same language the user writes in. "
+        "If the user asks for audio or a different language, just respond in that language as text — "
+        "audio is handled automatically by the app. "
+        "Keep answers clear, simple, and actionable.\n\nContext:\n{context}"
         ),
         MessagesPlaceholder("chat_history"),
         ("human", "{input}")
     ])
 
-    combine_chain = create_stuff_documents_chain(llm, qa_prompt)
-    return create_retrieval_chain(history_aware_retriever, combine_chain)
+    def retrieve_with_history(inputs: dict) -> dict:
+        """Rephrase question using history, then retrieve docs."""
+        chat_history_str = format_chat_history(inputs.get("chat_history", []))
+        rephrased = rephrase_chain.invoke({
+            "input": inputs["input"],
+            "chat_history": chat_history_str
+        })
+        docs = retriever.invoke(rephrased)
+        return {
+            "context": docs,
+            "context_str": format_docs(docs),
+            "input": inputs["input"],
+            "chat_history": inputs.get("chat_history", [])
+        }
+
+    def generate_answer(inputs: dict) -> dict:
+        """Generate answer from context and return with source docs."""
+        answer = (qa_prompt | llm | StrOutputParser()).invoke({
+            "context": inputs["context_str"],
+            "input": inputs["input"],
+            "chat_history": inputs["chat_history"]
+        })
+        return {
+            "answer": answer,
+            "context": inputs["context"]
+        }
+
+    return RunnableLambda(retrieve_with_history) | RunnableLambda(generate_answer)
 
 
 def get_rag_chain():
