@@ -9,8 +9,7 @@ safety options, and available support services, in their own language, including
 
 Millions of women in India, especially in tier 2 and tier 3 cities, face domestic
 violence, workplace harassment, cyber crime, and other rights violations every day.
-The information they need exists, in government acts, NCW guidelines, scheme documents, but it is written in legal language, available only in English, and impossible to
-navigate without a lawyer.
+The information they need exists, in government acts, NCW guidelines, scheme documents, but it is written in legal language, available only in English, and impossible to navigate without a lawyer.
 
 HerRight bridges that gap.
 
@@ -93,7 +92,7 @@ HerRight/
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/your-username/HerRight.git
+git clone https://github.com/richakumari0311/HerRight.git
 cd HerRight
 ```
 
