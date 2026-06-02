@@ -25,10 +25,18 @@ EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 FALLBACK_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
-    "gemini-3.1-flash-lite",
-    "gemini-3.5-flash"
-]
 
+    # TTS
+    "gemini-2.5-flash-preview-tts",
+    "gemini-3.1-flash-tts",
+
+    # Native audio / dialog
+    "gemini-2.5-flash-native-audio",
+    "gemini-2.5-flash-native-audio-dialog",
+
+    # newer generation
+    "gemini-3-flash"
+]
 
 def get_llm() -> ChatGoogleGenerativeAI:
     """Return LLM using first available model from fallback list."""
